@@ -5,7 +5,7 @@ export default defineConfig({
     plugins: [pluginReact()],
     server: {
         open: false,
-        port: 80,
+        port: 5003,
     },
     html: {
         title: "Oncology Registry Automation",
