@@ -143,7 +143,9 @@ const DocumentBrowsingPage = () => {
     };
 
     return (
-        <Layout style={{ minHeight: "100vh" }}>
+        <Layout
+            style={{ minHeight: "100vh", height: "100vh", overflow: "hidden" }}
+        >
             <Header
                 style={{
                     background: "#fff",
@@ -167,7 +169,12 @@ const DocumentBrowsingPage = () => {
                 <Sider
                     width={250}
                     theme="light"
-                    style={{ background: "#fafafa", padding: 16 }}
+                    style={{
+                        background: "#fafafa",
+                        padding: 16,
+                        height: "100vh",
+                        overflow: "auto",
+                    }}
                 >
                     <Card size="small" style={{ marginBottom: 16 }}>
                         <Space direction="vertical" size="small">
@@ -240,7 +247,13 @@ const DocumentBrowsingPage = () => {
                     </Card>
                 </Sider>
 
-                <Content style={{ padding: 24, background: "#fff" }}>
+                <Content
+                    style={{
+                        padding: 24,
+                        background: "#fff",
+                        overflow: "auto",
+                    }}
+                >
                     <Space
                         direction="vertical"
                         style={{ width: "100%" }}
@@ -447,6 +460,7 @@ const DocumentBrowsingPage = () => {
                 width={900}
                 onClose={() => setDrawerOpen(false)}
                 open={drawerOpen}
+                styles={{ body: { overflow: "auto" } }}
             >
                 {selectedDocumentId &&
                     (() => {
