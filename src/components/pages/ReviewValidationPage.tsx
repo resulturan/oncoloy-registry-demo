@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Layout,
@@ -39,6 +39,8 @@ import {
   setSelectedElementForProvenance,
   updateElementStatus,
 } from '../../store/slices/validationSlice';
+import { setDocuments } from '../../store/slices/documentsSlice';
+import { generateMockDocuments } from '../../data/mockDocuments';
 import type { ExtractedValue, BiomarkerTest } from '../../types';
 
 const { Header, Content, Sider } = Layout;
@@ -54,8 +56,17 @@ const ReviewValidationPage = () => {
   const { results, activeTab, provenanceOpen, selectedElementForProvenance } = useAppSelector(
     (state) => state.validation
   );
+  const { documents } = useAppSelector((state) => state.documents);
 
   const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  // Load documents for the current patient if not already loaded
+  useEffect(() => {
+    if (patientId && !documents[patientId]) {
+      const mockDocs = generateMockDocuments(patientId);
+      dispatch(setDocuments({ patientId, documents: mockDocs }));
+    }
+  }, [patientId, documents, dispatch]);
 
   const currentPatient = patients.find((p) => p.id === patientId);
   const result = results[patientId || ''];
@@ -330,6 +341,84 @@ const ReviewValidationPage = () => {
       </Header>
 
       <Layout>
+        <Sider
+          width={300}
+          style={{
+            background: '#fff',
+            borderRight: '1px solid #f0f0f0',
+            overflow: 'auto',
+            height: 'calc(100vh - 72px)',
+          }}
+        >
+          <div style={{ padding: '16px' }}>
+            <Title level={5} style={{ marginBottom: 16 }}>
+              Selected Patients ({selectedPatientIds.length})
+            </Title>
+            <List
+              dataSource={selectedPatientIds}
+              renderItem={(id) => {
+                const patient = patients.find((p) => p.id === id);
+                const isActive = id === patientId;
+                const patientResult = results[id];
+
+                // Calculate completion status
+                let needsReviewCount = 0;
+                if (patientResult) {
+                  Object.values(patientResult).forEach((categoryData: any) => {
+                    Object.values(categoryData).forEach((elementData: any) => {
+                      if (Array.isArray(elementData)) {
+                        elementData.forEach((item: any) => {
+                          if (item.status === 'needs_review') needsReviewCount++;
+                        });
+                      } else if (elementData?.status === 'needs_review') {
+                        needsReviewCount++;
+                      }
+                    });
+                  });
+                }
+
+                return (
+                  <Card
+                    key={id}
+                    size="small"
+                    style={{
+                      marginBottom: 8,
+                      cursor: 'pointer',
+                      borderLeft: isActive ? '4px solid #1890ff' : '4px solid transparent',
+                      background: isActive ? '#e6f7ff' : '#fff',
+                    }}
+                    hoverable
+                    onClick={() => navigate(`/review/${id}`)}
+                  >
+                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                      <Text strong style={{ fontSize: 14 }}>
+                        {patient?.name}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        MRN: {patient?.mrn}
+                      </Text>
+                      {patientResult && (
+                        <div>
+                          {needsReviewCount > 0 ? (
+                            <Badge count={needsReviewCount} offset={[0, 0]}>
+                              <Tag color="orange" style={{ fontSize: 11 }}>
+                                Needs Review
+                              </Tag>
+                            </Badge>
+                          ) : (
+                            <Tag color="green" style={{ fontSize: 11 }}>
+                              <CheckCircleOutlined /> Complete
+                            </Tag>
+                          )}
+                        </div>
+                      )}
+                    </Space>
+                  </Card>
+                );
+              }}
+            />
+          </div>
+        </Sider>
         <Content style={{ padding: 24, background: '#f0f0f0' }}>
           <Space direction="vertical" style={{ width: '100%' }} size="large">
             <Row gutter={16}>
@@ -443,32 +532,115 @@ const ReviewValidationPage = () => {
         onClose={() => dispatch(setProvenanceOpen(false))}
         open={provenanceOpen}
       >
-        {selectedElementForProvenance && result && (
-          <Space direction="vertical" style={{ width: '100%' }} size="large">
-            <Title level={4}>{selectedElementForProvenance}</Title>
+        {selectedElementForProvenance && result && (() => {
+          // Find the specific element's provenance by searching all categories
+          let selectedElementData: any = null;
 
-            <Tabs>
-              <TabPane tab="Source Documents" key="1">
-                <List
-                  dataSource={
-                    Object.values(result)
-                      .flatMap((cat: any) => Object.values(cat))
-                      .find((el: any) => el?.provenance)?. provenance || []
-                  }
-                  renderItem={(prov: any) => (
-                    <List.Item>
-                      <Card size="small" style={{ width: '100%' }}>
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                          <Text strong>{prov.documentTitle}</Text>
+          for (const categoryData of Object.values(result)) {
+            for (const [elementName, elementValue] of Object.entries(categoryData as any)) {
+              if (elementName === selectedElementForProvenance) {
+                selectedElementData = elementValue;
+                break;
+              }
+            }
+            if (selectedElementData) break;
+          }
+
+          return (
+            <Space direction="vertical" style={{ width: '100%' }} size="large">
+              <Title level={4}>{selectedElementForProvenance}</Title>
+
+              <Tabs>
+                <TabPane tab="Source Documents" key="1">
+                  {selectedElementData?.provenance?.map((prov: any, index: number) => {
+                    // Find the document in the documents store
+                    const patientDocs = documents[patientId || ''] || [];
+                    const sourceDoc = patientDocs.find((doc) => doc.id === prov.documentId);
+
+                    // Helper function to highlight text in content
+                    const getHighlightedContent = (content: string, textToHighlight: string) => {
+                      if (!textToHighlight) return content;
+
+                      // Escape special regex characters
+                      const escapedText = textToHighlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                      const regex = new RegExp(`(${escapedText})`, 'gi');
+                      const parts = content.split(regex);
+
+                      return parts.map((part, i) => {
+                        // Check if this part matches the highlighted text (case-insensitive)
+                        if (part.toLowerCase() === textToHighlight.toLowerCase()) {
+                          return (
+                            <mark
+                              key={i}
+                              style={{
+                                backgroundColor: '#fff566',
+                                padding: '2px 4px',
+                                fontWeight: 'bold',
+                              }}
+                            >
+                              {part}
+                            </mark>
+                          );
+                        }
+                        return part;
+                      });
+                    };
+
+                    return (
+                      <Card
+                        key={index}
+                        style={{ marginBottom: 16 }}
+                        title={
+                          <Space>
+                            <FileTextOutlined />
+                            <Text strong>{prov.documentTitle}</Text>
+                          </Space>
+                        }
+                      >
+                        {sourceDoc?.content ? (
+                          <div>
+                            <Card
+                              type="inner"
+                              size="small"
+                              style={{ marginBottom: 12, background: '#e6f7ff' }}
+                              title="Extracted Text"
+                            >
+                              <Text mark style={{ fontSize: '13px' }}>
+                                {prov.highlightedText}
+                              </Text>
+                            </Card>
+                            <Card
+                              size="small"
+                              style={{
+                                background: '#fafafa',
+                                maxHeight: '400px',
+                                overflow: 'auto',
+                                border: '1px solid #d9d9d9',
+                              }}
+                            >
+                              <pre
+                                style={{
+                                  whiteSpace: 'pre-wrap',
+                                  wordWrap: 'break-word',
+                                  fontFamily: 'monospace',
+                                  fontSize: '12px',
+                                  margin: 0,
+                                  lineHeight: '1.6',
+                                }}
+                              >
+                                {getHighlightedContent(sourceDoc.content, prov.highlightedText)}
+                              </pre>
+                            </Card>
+                          </div>
+                        ) : (
                           <Card type="inner" size="small" style={{ background: '#fffbe6' }}>
                             <Text mark>{prov.highlightedText}</Text>
                           </Card>
-                        </Space>
+                        )}
                       </Card>
-                    </List.Item>
-                  )}
-                />
-              </TabPane>
+                    );
+                  })}
+                </TabPane>
               <TabPane tab="Extraction Logic" key="2">
                 <Card>
                   <Paragraph>
@@ -485,7 +657,8 @@ const ReviewValidationPage = () => {
               </TabPane>
             </Tabs>
           </Space>
-        )}
+          );
+        })()}
       </Drawer>
 
       <Modal
